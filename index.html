@@ -7005,7 +7005,6 @@
       keys.forEach(key=>localStorage.setItem(key,String(parsed.data[key])));
       showSaveToast('복원했습니다.');
       await pushCloudData();
-      sessionStorage.setItem('budget-cloud-initialized','1');
       setTimeout(()=>location.reload(),650);
     }catch(e){
       alert('가계부 백업 파일을 확인해 주세요.');
@@ -7019,6 +7018,8 @@
      ========================= */
   const CLOUD_SYNC_URL='https://script.google.com/macros/s/AKfycbxlp0nQ4v5-TuljDhS23c-gKfeEW0FXiuS36lDLrsaTbXz6E9JEEXa4WiIJwdKnTk1Xfg/exec';
   let cloudSyncTimer=null;
+  let cloudPulling=false;
+  let cloudLastPullAt=0;
 
   function collectBudgetStorageData(){
     const data={};
@@ -7027,6 +7028,25 @@
       if(key?.startsWith('budget-')) data[key]=localStorage.getItem(key);
     }
     return data;
+  }
+
+  function normalizeCloudData(data){
+    return Object.fromEntries(Object.entries(data||{}).filter(([key])=>key.startsWith('budget-')));
+  }
+
+  function sameBudgetData(a,b){
+    const ak=Object.keys(a||{}).sort();
+    const bk=Object.keys(b||{}).sort();
+    if(ak.length!==bk.length) return false;
+    return ak.every((key,i)=>key===bk[i] && String(a[key])===String(b[key]));
+  }
+
+  async function fetchCloudData(){
+    const response=await fetch(`${CLOUD_SYNC_URL}?t=${Date.now()}`,{cache:'no-store'});
+    if(!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result=await response.json();
+    if(!result?.success || !result.data || typeof result.data!=='object') throw new Error('invalid cloud response');
+    return normalizeCloudData(result.data);
   }
 
   async function pushCloudData(){
@@ -7038,7 +7058,12 @@
         headers:{'Content-Type':'text/plain;charset=utf-8'},
         body:JSON.stringify({data})
       });
-      return true;
+      // no-cors POST 자체의 응답은 읽을 수 없으므로 다시 GET하여 실제 저장 결과를 확인한다.
+      await new Promise(resolve=>setTimeout(resolve,700));
+      const remoteData=await fetchCloudData();
+      const ok=sameBudgetData(remoteData,data);
+      if(!ok) console.warn('Google Sheet 저장 확인 실패');
+      return ok;
     }catch(error){
       console.warn('Google Sheet 동기화 저장 실패',error);
       return false;
@@ -7062,36 +7087,50 @@
     });
   }
 
-  async function initializeCloudSync(){
-    if(sessionStorage.getItem('budget-cloud-initialized')==='1') return;
+  async function pullCloudData({reloadOnChange=true}={}){
+    if(cloudPulling) return false;
+    cloudPulling=true;
     try{
-      const response=await fetch(`${CLOUD_SYNC_URL}?t=${Date.now()}`,{cache:'no-store'});
-      if(!response.ok) throw new Error(`HTTP ${response.status}`);
-      const result=await response.json();
-      if(!result?.success || !result.data || typeof result.data!=='object') throw new Error('invalid cloud response');
-
-      const remoteData=Object.fromEntries(Object.entries(result.data).filter(([key])=>key.startsWith('budget-')));
+      const remoteData=await fetchCloudData();
       const localData=collectBudgetStorageData();
-      const remoteKeys=Object.keys(remoteData);
-      const localKeys=Object.keys(localData);
+      cloudLastPullAt=Date.now();
 
-      sessionStorage.setItem('budget-cloud-initialized','1');
-
-      // 빈 시트가 기존 로컬 데이터를 지우지 않도록 최초 연결은 로컬 -> 시트로 올린다.
-      if(remoteKeys.length===0){
-        if(localKeys.length) await pushCloudData();
-        return;
+      // 빈 시트가 기존 로컬 데이터를 지우지 않도록 한다.
+      if(Object.keys(remoteData).length===0){
+        if(Object.keys(localData).length) await pushCloudData();
+        return false;
       }
 
-      // 시트에 데이터가 있으면 모든 기기에서 같은 데이터를 사용한다.
-      if(JSON.stringify(remoteData)!==JSON.stringify(localData)){
+      if(!sameBudgetData(remoteData,localData)){
         replaceBudgetStorage(remoteData);
-        location.reload();
+        if(reloadOnChange) location.reload();
+        return true;
       }
+      return false;
     }catch(error){
       console.warn('Google Sheet 동기화 불러오기 실패 - 로컬 데이터로 계속 사용합니다.',error);
+      return false;
+    }finally{
+      cloudPulling=false;
     }
   }
+
+  async function initializeCloudSync(){
+    // 페이지를 열거나 새로고침할 때마다 최신 시트 데이터를 확인한다.
+    await pullCloudData({reloadOnChange:true});
+  }
+
+  // 다른 기기에서 수정한 뒤 이 탭으로 돌아오면 최신 데이터를 다시 확인한다.
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible' && Date.now()-cloudLastPullAt>1500){
+      pullCloudData({reloadOnChange:true});
+    }
+  });
+  window.addEventListener('focus',()=>{
+    if(Date.now()-cloudLastPullAt>1500){
+      pullCloudData({reloadOnChange:true});
+    }
+  });
 
   /* =========================
      ANNUAL REPORT
