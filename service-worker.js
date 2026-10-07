@@ -1,5 +1,7 @@
-const CACHE_NAME = 'budget-pwa-v1';
+const CACHE_NAME = 'budget-pwa-v2';
 const STATIC_ASSETS = [
+  './favicon-32.png',
+  './favicon-48.png',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',
