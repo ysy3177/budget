@@ -6345,6 +6345,7 @@
     saveState.textContent='';
     showSaveToast();
     populateCopyMonths(); updateHomeDashboard();
+    cloudSyncSoon();
   }
   function markUnsaved(){ saveState.textContent='저장 필요'; }
   function loadMonthlyData(){ renderMonthly(getMonthlyData()); }
@@ -6652,6 +6653,7 @@
     localStorage.setItem(forecastStorageKey(activeForecastKey),JSON.stringify(collectForecast()));
     if(showState){ document.getElementById('forecastSaveState').textContent=''; showSaveToast(); }
     renderForecastOverview(); updateHomeDashboard();
+    cloudSyncSoon();
   }
   let pendingClearAction=null;
   function askClearAll(label, action){
@@ -6943,7 +6945,7 @@
     if(appContainer.classList.contains('monthly-mode')) renderMonthly(merged);
     if(appContainer.classList.contains('forecast-mode')){renderForecastOverview();loadForecastEditor(activeForecastKey);}
   }
-  document.getElementById('savePlansBtn')?.addEventListener('click',()=>{const plans=collectPlanData();localStorage.setItem(planStorageKey,JSON.stringify(plans));syncInstallmentsToBudget(plans);renderPlanManagement();showSaveToast();updateHomeDashboard();});
+  document.getElementById('savePlansBtn')?.addEventListener('click',()=>{const plans=collectPlanData();localStorage.setItem(planStorageKey,JSON.stringify(plans));syncInstallmentsToBudget(plans);renderPlanManagement();showSaveToast();updateHomeDashboard();cloudSyncSoon();});
 
   function loadSettingsPage(){
     const cycle=document.getElementById('settingCycleDay'), count=document.getElementById('settingUpcomingCount'), sort=document.getElementById('settingAutoSort');
@@ -6956,7 +6958,7 @@
     localStorage.setItem('budget-cycle-start-day',String(budgetCycleStartDay));
     localStorage.setItem('budget-upcoming-count',String(upcomingDisplayCount));
     localStorage.setItem('budget-auto-sort',String(autoSortEntries));
-    loadSettingsPage(); showSaveToast(); updateHomeDashboard();
+    loadSettingsPage(); showSaveToast(); updateHomeDashboard(); cloudSyncSoon();
   });
 
   function collectBudgetBackup(){
@@ -7002,6 +7004,8 @@
       remove.forEach(key=>localStorage.removeItem(key));
       keys.forEach(key=>localStorage.setItem(key,String(parsed.data[key])));
       showSaveToast('복원했습니다.');
+      await pushCloudData();
+      sessionStorage.setItem('budget-cloud-initialized','1');
       setTimeout(()=>location.reload(),650);
     }catch(e){
       alert('가계부 백업 파일을 확인해 주세요.');
@@ -7009,6 +7013,85 @@
       restoreDataInput.value='';
     }
   });
+
+  /* =========================
+     GOOGLE SHEETS CLOUD SYNC
+     ========================= */
+  const CLOUD_SYNC_URL='https://script.google.com/macros/s/AKfycbxlp0nQ4v5-TuljDhS23c-gKfeEW0FXiuS36lDLrsaTbXz6E9JEEXa4WiIJwdKnTk1Xfg/exec';
+  let cloudSyncTimer=null;
+
+  function collectBudgetStorageData(){
+    const data={};
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(key?.startsWith('budget-')) data[key]=localStorage.getItem(key);
+    }
+    return data;
+  }
+
+  async function pushCloudData(){
+    const data=collectBudgetStorageData();
+    try{
+      await fetch(CLOUD_SYNC_URL,{
+        method:'POST',
+        mode:'no-cors',
+        headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:JSON.stringify({data})
+      });
+      return true;
+    }catch(error){
+      console.warn('Google Sheet 동기화 저장 실패',error);
+      return false;
+    }
+  }
+
+  function cloudSyncSoon(delay=250){
+    clearTimeout(cloudSyncTimer);
+    cloudSyncTimer=setTimeout(()=>{ pushCloudData(); },delay);
+  }
+
+  function replaceBudgetStorage(data){
+    const remove=[];
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(key?.startsWith('budget-')) remove.push(key);
+    }
+    remove.forEach(key=>localStorage.removeItem(key));
+    Object.entries(data||{}).forEach(([key,value])=>{
+      if(key.startsWith('budget-')) localStorage.setItem(key,String(value));
+    });
+  }
+
+  async function initializeCloudSync(){
+    if(sessionStorage.getItem('budget-cloud-initialized')==='1') return;
+    try{
+      const response=await fetch(`${CLOUD_SYNC_URL}?t=${Date.now()}`,{cache:'no-store'});
+      if(!response.ok) throw new Error(`HTTP ${response.status}`);
+      const result=await response.json();
+      if(!result?.success || !result.data || typeof result.data!=='object') throw new Error('invalid cloud response');
+
+      const remoteData=Object.fromEntries(Object.entries(result.data).filter(([key])=>key.startsWith('budget-')));
+      const localData=collectBudgetStorageData();
+      const remoteKeys=Object.keys(remoteData);
+      const localKeys=Object.keys(localData);
+
+      sessionStorage.setItem('budget-cloud-initialized','1');
+
+      // 빈 시트가 기존 로컬 데이터를 지우지 않도록 최초 연결은 로컬 -> 시트로 올린다.
+      if(remoteKeys.length===0){
+        if(localKeys.length) await pushCloudData();
+        return;
+      }
+
+      // 시트에 데이터가 있으면 모든 기기에서 같은 데이터를 사용한다.
+      if(JSON.stringify(remoteData)!==JSON.stringify(localData)){
+        replaceBudgetStorage(remoteData);
+        location.reload();
+      }
+    }catch(error){
+      console.warn('Google Sheet 동기화 불러오기 실패 - 로컬 데이터로 계속 사용합니다.',error);
+    }
+  }
 
   /* =========================
      ANNUAL REPORT
@@ -7067,6 +7150,8 @@
   }
   document.getElementById('annualPrevYear')?.addEventListener('click',()=>{ annualReportYear--; renderAnnualReport(); });
   document.getElementById('annualNextYear')?.addEventListener('click',()=>{ annualReportYear++; renderAnnualReport(); });
+
+  initializeCloudSync();
 </script>
 
 </body>
