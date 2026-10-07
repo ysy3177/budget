@@ -12,6 +12,14 @@
 
   <title>가계부</title>
 
+  <meta name="theme-color" content="#e63b3b">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="가계부">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+
 
 
   <link rel="icon" type="image/svg+xml"
@@ -7191,6 +7199,16 @@
   document.getElementById('annualNextYear')?.addEventListener('click',()=>{ annualReportYear++; renderAnnualReport(); });
 
   initializeCloudSync();
+</script>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./service-worker.js', { updateViaCache: 'none' })
+        .then(registration => registration.update())
+        .catch(error => console.warn('PWA service worker registration failed:', error));
+    });
+  }
 </script>
 
 </body>
