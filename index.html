@@ -6268,35 +6268,41 @@
     if(goalId){
       const goal=goalOptions().find(g=>g.id===goalId);
       if(goal){
-        // 현재 편집 중인 월은 저장된 값 대신 화면의 값을 사용해 이중 계산을 방지한다.
-        let actual=0;
-        for(let i=0;i<localStorage.length;i++){
-          const k=localStorage.key(i)||'';
-          if(!/^budget-month-\d{4}-\d{2}$/.test(k)) continue;
-          if(!isForecast && k==='budget-month-'+key) continue;
-          try{const d=JSON.parse(localStorage.getItem(k)||'{}');(d.savings||[]).forEach(x=>{if(x.goalId===goalId)actual+=Number(x.amount)||0;});}catch(e){}
+        let actual=goalActualContribution(goalId);
+        if(!isForecast){
+          const stored=getMonthlyData(key);
+          const old=(stored.savings||[]).reduce((sum,x)=>sum+(x.goalId===goalId?(Number(x.amount)||0):0),0);
+          let editing=0;
+          document.querySelectorAll('#savingRows tr').forEach(row=>{
+            if(row.querySelector('.goal-select')?.dataset.value===goalId)
+              editing+=digits(row.querySelector('.entry-amount')?.value||0);
+          });
+          actual+=editing-old;
         }
-        const rows=document.querySelectorAll('#savingRows tr');
-        if(!isForecast){rows.forEach(row=>{if(row.querySelector('.goal-select')?.dataset.value===goalId)actual+=digits(row.querySelector('.entry-amount')?.value||0);});}
-        const start=Number(goal.current)||0;
+        const achieved=(Number(goal.current)||0)+actual;
+        const forecast=goalForecastContribution(goalId,isForecast);
+        const projected=achieved+forecast;
         const target=Number(goal.target)||0;
-        const achieved=start+actual;
-        const projected=isForecast?achieved+amount:achieved;
-        const pct=target?Math.min(100,Math.max(0,projected/target*100)):0;
-        html=`<strong>${isForecast?'예상 반영':'이번 입력 반영'} ${formatWon(projected)}</strong> / 목표 ${formatWon(target)}<div>${isForecast?'실제 달성 '+formatWon(achieved)+' · 예상 저축 +'+formatWon(amount):'목표까지 '+formatWon(Math.max(0,target-achieved))+' 남음'} · ${Math.round(pct)}%</div><div class="link-progress"><span style="width:${pct}%"></span></div>`;
+        const shown=isForecast?projected:achieved;
+        const pct=target?Math.min(100,Math.max(0,shown/target*100)):0;
+        html=`<strong>${isForecast?'예상 반영':'현재 금액'} ${formatWon(shown)}</strong> / 목표 ${formatWon(target)}<div>실제 달성 ${formatWon(achieved)} · 예상 저축 ${formatWon(forecast)} · ${Math.round(pct)}%</div><div class="link-progress"><span style="width:${pct}%"></span></div>`;
       }
     }else if(installmentId){
       const plan=installmentOptions().find(x=>x.id===installmentId);
       if(plan){
         const months=Math.max(0,Number(plan.months)||0);
-        // 첫 청구 월을 기준으로 생성된 실제 청구 회차를 사용한다.
+        // 저장된 회차가 없더라도 첫 청구 월과 조회 월을 기준으로 회차를 계산한다.
         const entry=installmentEntryForKey(installmentId,key);
-        const cycle=Number(entry?.installmentCycle)||0;
-        if(cycle && months){
+        let cycle=Number(entry?.installmentCycle)||0;
+        if(!cycle && /^\d{4}-\d{2}$/.test(plan.startMonth||'') && /^\d{4}-\d{2}$/.test(key||'')){
+          const [sy,sm]=plan.startMonth.split('-').map(Number),[ky,km]=key.split('-').map(Number);
+          cycle=(ky-sy)*12+(km-sm)+1;
+        }
+        if(cycle>=1 && cycle<=months){
           const remaining=Math.max(0,months-cycle);
           html=`<strong>${cycle} / ${months}회차</strong> · ${remaining===0?'마지막 회차':`앞으로 ${remaining}회 남음`}`;
         }else{
-          html='<strong>선택한 월에 청구 회차가 없습니다</strong>';
+          html='<strong>해당 월에는 청구 예정 회차가 없습니다</strong>';
         }
       }
     }
@@ -6892,14 +6898,43 @@
     }
     return sum;
   }
+  // 저장된 월별 저축은 실제 달성, 6개월 예상 저축은 예상 반영에만 합산.
+  function goalForecastContribution(goalId,useEditor=false){
+    if(!goalId) return 0;
+    let sum=0;
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i)||'';
+      if(!/^budget-forecast-\d{4}-\d{2}$/.test(key)) continue;
+      if(useEditor && activeForecastKey && key===forecastStorageKey(activeForecastKey)) continue;
+      try{
+        const d=JSON.parse(localStorage.getItem(key)||'{}');
+        (Array.isArray(d.savings)?d.savings:[]).forEach(v=>{if(v.goalId===goalId)sum+=Number(v.amount)||0;});
+      }catch(e){}
+    }
+    if(useEditor && activeForecastKey){
+      document.querySelectorAll('#forecastSavingRows tr').forEach(row=>{
+        if(row.querySelector('.goal-select')?.dataset.value===goalId)
+          sum+=digits(row.querySelector('.entry-amount')?.value||0);
+      });
+    }
+    return sum;
+  }
   function goalProgressData(x={}){
-    const base=Number(x.current)||0, linked=goalActualContribution(x.id), total=base+linked, target=Number(x.target)||0;
-    return {base,linked,total,target,pct:target?Math.min(100,Math.round(total/target*100)):0};
+    const base=Number(x.current)||0, linked=goalActualContribution(x.id);
+    const total=base+linked, forecast=goalForecastContribution(x.id);
+    const projected=total+forecast, target=Number(x.target)||0;
+    return {base,linked,total,forecast,projected,target,pct:target?Math.min(100,Math.round(total/target*100)):0};
   }
   function goalRow(x={}){
     const id=x.id||`goal-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
     const target=Number(x.target)||0,current=Number(x.current)||0,p=goalProgressData({...x,id});
-    return `<div class="plan-manage-row goal-row" data-goal-id="${escapeHtml(id)}"><input data-field="name" value="${escapeHtml(x.name||'')}" placeholder="목표명">${moneyInput(target,'target','목표 금액')}${moneyInput(current,'current','시작 금액')}<button class="plan-delete" type="button" aria-label="삭제">×</button><div class="goal-progress-meta"><span>월별 저축 연결 ${formatWon(p.linked)}</span><span><strong>${formatWon(p.total)}</strong> / ${formatWon(target)} · ${p.pct}%</span></div></div>`;
+    return `<div class="plan-manage-row goal-row" data-goal-id="${escapeHtml(id)}"><input data-field="name" value="${escapeHtml(x.name||'')}" placeholder="목표명">${moneyInput(target,'target','목표 금액')}${moneyInput(current,'current','직접 조정 금액 (저축 사용 시 수정)')}<button class="plan-delete" type="button" aria-label="삭제">×</button><div class="goal-progress-meta"><span>직접 조정 ${formatWon(p.base)} + 월별 저축 ${formatWon(p.linked)}</span><span><strong>현재 금액 ${formatWon(p.total)}</strong> / 목표 ${formatWon(target)} · ${p.pct}%</span><span>예상 반영 ${formatWon(p.projected)} (예상 저축 ${formatWon(p.forecast)})</span></div></div>`;
+  }
+  function refreshGoalRow(row){
+    if(!row?.classList.contains('goal-row')) return;
+    const x={id:row.dataset.goalId,current:digits(row.querySelector('[data-field="current"]')?.value||0),target:digits(row.querySelector('[data-field="target"]')?.value||0)};
+    const p=goalProgressData(x), meta=row.querySelector('.goal-progress-meta');
+    if(meta) meta.innerHTML=`<span>직접 조정 ${formatWon(p.base)} + 월별 저축 ${formatWon(p.linked)}</span><span><strong>현재 금액 ${formatWon(p.total)}</strong> / 목표 ${formatWon(p.target)} · ${p.pct}%</span><span>예상 반영 ${formatWon(p.projected)} (예상 저축 ${formatWon(p.forecast)})</span>`;
   }
   function refreshInstallmentRow(row){
     if(!row?.classList.contains('installment-row')) return;
@@ -6915,7 +6950,7 @@
     if(meta) meta.innerHTML=`<span class="installment-status">${status.endLabel}${paymentDay?` · 매월 ${paymentDay}일 결제`:''}</span><span>${amountText}</span>`;
   }
   function bindPlanRows(){
-    document.querySelectorAll('.plan-manage-row .plan-money').forEach(el=>{if(el.dataset.bound)return;el.dataset.bound='1';el.addEventListener('input',()=>{formatInputValue(el);refreshInstallmentRow(el.closest('.plan-manage-row'));});});
+    document.querySelectorAll('.plan-manage-row .plan-money').forEach(el=>{if(el.dataset.bound)return;el.dataset.bound='1';el.addEventListener('input',()=>{formatInputValue(el);refreshInstallmentRow(el.closest('.plan-manage-row'));refreshGoalRow(el.closest('.plan-manage-row'));});});
     document.querySelectorAll('.installment-row [data-field="startMonth"],.installment-row [data-field="months"],.installment-row [data-field="paymentDay"],.installment-row [data-field="interestMonths"]').forEach(el=>{if(el.dataset.bound)return;el.dataset.bound='1';el.addEventListener('input',()=>refreshInstallmentRow(el.closest('.plan-manage-row')));});
     document.querySelectorAll('.installment-row .installment-type button').forEach(btn=>{if(btn.dataset.bound)return;btn.dataset.bound='1';btn.addEventListener('click',()=>{const row=btn.closest('.installment-row');row.dataset.interestType=btn.dataset.type;row.querySelectorAll('.installment-type button').forEach(b=>b.classList.toggle('active',b===btn));refreshInstallmentRow(row);});});
     document.querySelectorAll('.plan-manage-row .plan-delete').forEach(btn=>{if(btn.dataset.bound)return;btn.dataset.bound='1';btn.addEventListener('click',()=>{btn.closest('.plan-manage-row').remove();refreshPlanEmpty();});});
