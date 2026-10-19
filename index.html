@@ -4149,11 +4149,11 @@
               <div class="donut-wrap">
                 <svg class="donut-svg" id="donutSvg" viewBox="0 0 160 160" aria-label="지출 구성 그래프">
                   <circle cx="80" cy="80" r="56" fill="none" stroke="#f7e6e5" stroke-width="30"></circle>
-                  <circle class="donut-segment" id="donutSeg0" cx="80" cy="80" r="56"></circle>
-                  <circle class="donut-segment" id="donutSeg1" cx="80" cy="80" r="56"></circle>
-                  <circle class="donut-segment" id="donutSeg2" cx="80" cy="80" r="56"></circle>
-                  <circle class="donut-segment" id="donutSeg3" cx="80" cy="80" r="56"></circle>
-                  <circle class="donut-segment" id="donutSeg4" cx="80" cy="80" r="56"></circle>
+                  <path class="donut-segment" id="donutSeg0"></path>
+                  <path class="donut-segment" id="donutSeg1"></path>
+                  <path class="donut-segment" id="donutSeg2"></path>
+                  <path class="donut-segment" id="donutSeg3"></path>
+                  <path class="donut-segment" id="donutSeg4"></path>
                 </svg>
                 <div class="donut-center"><span>총 지출</span><strong id="donutTotal">0원</strong></div>
               </div>
@@ -6288,14 +6288,16 @@
     }else if(installmentId){
       const plan=installmentOptions().find(x=>x.id===installmentId);
       if(plan){
-        const months=Math.max(0,Number(plan.months)||0), total=Number(plan.total)||0;
+        const months=Math.max(0,Number(plan.months)||0);
+        // 첫 청구 월을 기준으로 생성된 실제 청구 회차를 사용한다.
         const entry=installmentEntryForKey(installmentId,key);
-        const cycle=Number(tr.dataset.installmentCycle)||Number(entry?.installmentCycle)||0;
-        const remaining=cycle?Math.max(0,months-cycle):months;
-        const base=months?Math.floor(total/months):0;
-        const principalPaid=cycle?Math.min(total,base*cycle):0;
-        const principalLeft=Math.max(0,total-principalPaid);
-        html=`<strong>${cycle?cycle+' / '+months+'회차':'할부 '+months+'개월'}</strong> · ${remaining}회 남음<div>이번 입력 ${formatWon(amount)} · 남은 원금 약 ${formatWon(principalLeft)}</div>${plan.interestType==='interest'||(plan.interestType==='partial'&&cycle<=Number(plan.interestMonths||0))?'<div>이자 적용 회차 · 실제 청구액은 별도 확인</div>':''}`;
+        const cycle=Number(entry?.installmentCycle)||0;
+        if(cycle && months){
+          const remaining=Math.max(0,months-cycle);
+          html=`<strong>${cycle} / ${months}회차</strong> · ${remaining===0?'마지막 회차':`앞으로 ${remaining}회 남음`}`;
+        }else{
+          html='<strong>선택한 월에 청구 회차가 없습니다</strong>';
+        }
       }
     }
     status.innerHTML=html;
@@ -6487,28 +6489,35 @@
         return `<div class="category-row"><div class="category-name">${escapeHtml(name)}</div><div class="category-percent">${percent}%</div><div class="category-price">${formatWon(value)}</div></div>`;
       }).join('') : '<div class="empty-state"></div>';
     }
-    const circumference=2*Math.PI*56;
+    // SVG 원호를 각각 독립된 경로로 그려 겹침과 이음새의 돌출을 방지한다.
     const donutColors=['#e63b3b','#ee6662','#f2958e','#dba5a0','#b96664'];
-    let offset=0;
+    const polar=(angle)=>{
+      const rad=angle*Math.PI/180;
+      return [80+56*Math.cos(rad),80+56*Math.sin(rad)];
+    };
+    let startAngle=-90;
     for(let i=0;i<5;i++){
       const seg=document.getElementById(`donutSeg${i}`);
       if(!seg) continue;
       const row=categoryRows[i];
-      if(!row || totalExpense<=0){
-        seg.style.display='none';
-        continue;
-      }
-      seg.style.display='block';
+      if(!row || totalExpense<=0){seg.style.display='none';seg.removeAttribute('d');continue;}
       const [name,value]=row;
-      const ratio=value/totalExpense;
-      const length=i===categoryRows.length-1 ? Math.max(0,circumference-offset) : Math.max(0,ratio*circumference);
+      const angle=i===categoryRows.length-1?270-startAngle:360*value/totalExpense;
+      if(angle<=0){seg.style.display='none';seg.removeAttribute('d');continue;}
+      seg.style.display='block';
+      const endAngle=startAngle+angle;
+      const [x1,y1]=polar(startAngle),[x2,y2]=polar(endAngle);
+      const path=angle>=359.999
+        ? `M 80 24 A 56 56 0 1 1 80 136 A 56 56 0 1 1 80 24`
+        : `M ${x1} ${y1} A 56 56 0 ${angle>180?1:0} 1 ${x2} ${y2}`;
+      seg.setAttribute('d',path);
       seg.setAttribute('stroke',donutColors[i]);
-      seg.setAttribute('stroke-dasharray',`${length} ${Math.max(0,circumference-length)}`);
-      seg.setAttribute('stroke-dashoffset',`${-offset}`);
+      seg.removeAttribute('stroke-dasharray');
+      seg.removeAttribute('stroke-dashoffset');
       seg.dataset.name=name;
       seg.dataset.price=formatWon(value);
-      seg.dataset.percent=`${Math.round(ratio*100)}%`;
-      offset+=length;
+      seg.dataset.percent=`${Math.round(value/totalExpense*100)}%`;
+      startAngle=endAngle;
     }
 
     // 다가오는 출금: 급여 주기(21일~다음 달 20일)의 실제 날짜 기준
