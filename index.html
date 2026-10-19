@@ -6280,7 +6280,7 @@
           actual+=editing-old;
         }
         const achieved=(Number(goal.current)||0)+actual;
-        const forecast=goalForecastContribution(goalId,isForecast);
+        const forecast=goalForecastContribution(goalId,isForecast,isForecast?key:null);
         const projected=achieved+forecast;
         const target=Number(goal.target)||0;
         const shown=isForecast?projected:achieved;
@@ -6899,19 +6899,23 @@
     return sum;
   }
   // 저장된 월별 저축은 실제 달성, 6개월 예상 저축은 예상 반영에만 합산.
-  function goalForecastContribution(goalId,useEditor=false){
+  // 예상 저축은 조회 월까지의 금액만 누적한다. 목표 관리에서는 전체 예상 합계를 보여준다.
+  function goalForecastContribution(goalId,useEditor=false,throughKey=null){
     if(!goalId) return 0;
     let sum=0;
     for(let i=0;i<localStorage.length;i++){
       const key=localStorage.key(i)||'';
-      if(!/^budget-forecast-\d{4}-\d{2}$/.test(key)) continue;
+      const match=/^budget-forecast-(\d{4}-\d{2})$/.exec(key);
+      if(!match || (throughKey && match[1]>throughKey)) continue;
       if(useEditor && activeForecastKey && key===forecastStorageKey(activeForecastKey)) continue;
       try{
         const d=JSON.parse(localStorage.getItem(key)||'{}');
-        (Array.isArray(d.savings)?d.savings:[]).forEach(v=>{if(v.goalId===goalId)sum+=Number(v.amount)||0;});
+        (Array.isArray(d.savings)?d.savings:[]).forEach(v=>{
+          if(v.goalId===goalId) sum+=Number(v.amount)||0;
+        });
       }catch(e){}
     }
-    if(useEditor && activeForecastKey){
+    if(useEditor && activeForecastKey && (!throughKey || activeForecastKey<=throughKey)){
       document.querySelectorAll('#forecastSavingRows tr').forEach(row=>{
         if(row.querySelector('.goal-select')?.dataset.value===goalId)
           sum+=digits(row.querySelector('.entry-amount')?.value||0);
