@@ -1937,6 +1937,7 @@
 
 
     .donut-svg {
+      flex-shrink:0;
 
       width: 180px;
 
@@ -3003,6 +3004,14 @@
     .manage-card:not(.is-empty) .entry-total { display:flex; }
     .entry-total span { font-size:12px; font-weight:700; color:var(--text-muted); }
     .entry-total strong { min-width:120px; text-align:right; font-size:15px; font-weight:800; color:var(--text); }
+
+
+    /* 연결된 목표·할부의 입력 중 실시간 현황 */
+    .entry-link-status { display:none; margin:5px 0 2px; padding:9px 10px; border-radius:9px; background:#fff7f6; border:1px solid #f5e1df; font-size:11px; line-height:1.65; color:#69636a; text-align:left; white-space:normal; }
+    .entry-link-status.visible { display:block; }
+    .entry-link-status strong { color:#c83e3c; font-weight:800; }
+    .entry-link-status .link-progress { height:4px; background:#eadfdf; border-radius:5px; overflow:hidden; margin-top:6px; }
+    .entry-link-status .link-progress span { display:block; height:100%; background:#e63b3b; border-radius:5px; }
 
     /* 5개 초과 항목은 카드 내부에서 스크롤 */
     .manage-card:not(.is-empty) .entry-table tbody {
@@ -6211,7 +6220,7 @@
     if(item.installmentId) tr.dataset.installmentId=item.installmentId;
     if(item.installmentType) tr.dataset.installmentType=item.installmentType; if(item.installmentCycle) tr.dataset.installmentCycle=item.installmentCycle; if(item.isInterestCycle) tr.dataset.isInterestCycle='true';
     tr.innerHTML=`<td>${dayCell(item.day)}</td><td><input class="entry-input entry-name" value="${escapeHtml(item.name)}"></td><td>${customCategory(item.category)}</td><td>${customInstallmentSelect(item.installmentId||'')}</td><td><input class="entry-input money-input entry-amount" inputmode="numeric" value="${item.amount?Number(item.amount).toLocaleString('ko-KR'):''}"></td><td class="action-col"><button class="row-delete" type="button" aria-label="삭제">×</button></td>`;
-    bindRow(tr); bindCustomSelect(tr.querySelector('.entry-category')); bindInstallmentSelect(tr.querySelector('.installment-select'),tr,()=>monthKey(),()=>{updateMonthlySummary();markUnsaved();}); return tr;
+    bindRow(tr); bindCustomSelect(tr.querySelector('.entry-category')); bindInstallmentSelect(tr.querySelector('.installment-select'),tr,()=>monthKey(),()=>{updateMonthlySummary();markUnsaved();refreshLinkStatus(tr,false);}); setupLinkStatus(tr,false); return tr;
   }
   function goalOptions(){ return getPlanData().goals.filter(g=>g.name); }
   function customGoalSelect(value='') {
@@ -6237,17 +6246,73 @@
       onChange?.();
     }));
   }
+
+  function setupLinkStatus(tr,isForecast){
+    const amount=tr.querySelector('.entry-amount');
+    if(!amount) return;
+    const host=amount.closest('td');
+    if(!host || host.querySelector('.entry-link-status')) return;
+    const status=document.createElement('div');
+    status.className='entry-link-status'; status.setAttribute('aria-live','polite');
+    host.appendChild(status);
+    refreshLinkStatus(tr,isForecast);
+  }
+  function refreshLinkStatus(tr,isForecast){
+    const status=tr.querySelector('.entry-link-status');
+    if(!status) return;
+    const goalId=tr.querySelector('.goal-select')?.dataset.value||'';
+    const installmentId=tr.querySelector('.installment-select')?.dataset.value||'';
+    const amount=digits(tr.querySelector('.entry-amount')?.value||0);
+    const key=isForecast?activeForecastKey:monthKey();
+    let html='';
+    if(goalId){
+      const goal=goalOptions().find(g=>g.id===goalId);
+      if(goal){
+        // 현재 편집 중인 월은 저장된 값 대신 화면의 값을 사용해 이중 계산을 방지한다.
+        let actual=0;
+        for(let i=0;i<localStorage.length;i++){
+          const k=localStorage.key(i)||'';
+          if(!/^budget-month-\d{4}-\d{2}$/.test(k)) continue;
+          if(!isForecast && k==='budget-month-'+key) continue;
+          try{const d=JSON.parse(localStorage.getItem(k)||'{}');(d.savings||[]).forEach(x=>{if(x.goalId===goalId)actual+=Number(x.amount)||0;});}catch(e){}
+        }
+        const rows=document.querySelectorAll('#savingRows tr');
+        if(!isForecast){rows.forEach(row=>{if(row.querySelector('.goal-select')?.dataset.value===goalId)actual+=digits(row.querySelector('.entry-amount')?.value||0);});}
+        const start=Number(goal.current)||0;
+        const target=Number(goal.target)||0;
+        const achieved=start+actual;
+        const projected=isForecast?achieved+amount:achieved;
+        const pct=target?Math.min(100,Math.max(0,projected/target*100)):0;
+        html=`<strong>${isForecast?'예상 반영':'이번 입력 반영'} ${formatWon(projected)}</strong> / 목표 ${formatWon(target)}<div>${isForecast?'실제 달성 '+formatWon(achieved)+' · 예상 저축 +'+formatWon(amount):'목표까지 '+formatWon(Math.max(0,target-achieved))+' 남음'} · ${Math.round(pct)}%</div><div class="link-progress"><span style="width:${pct}%"></span></div>`;
+      }
+    }else if(installmentId){
+      const plan=installmentOptions().find(x=>x.id===installmentId);
+      if(plan){
+        const months=Math.max(0,Number(plan.months)||0), total=Number(plan.total)||0;
+        const entry=installmentEntryForKey(installmentId,key);
+        const cycle=Number(tr.dataset.installmentCycle)||Number(entry?.installmentCycle)||0;
+        const remaining=cycle?Math.max(0,months-cycle):months;
+        const base=months?Math.floor(total/months):0;
+        const principalPaid=cycle?Math.min(total,base*cycle):0;
+        const principalLeft=Math.max(0,total-principalPaid);
+        html=`<strong>${cycle?cycle+' / '+months+'회차':'할부 '+months+'개월'}</strong> · ${remaining}회 남음<div>이번 입력 ${formatWon(amount)} · 남은 원금 약 ${formatWon(principalLeft)}</div>${plan.interestType==='interest'||(plan.interestType==='partial'&&cycle<=Number(plan.interestMonths||0))?'<div>이자 적용 회차 · 실제 청구액은 별도 확인</div>':''}`;
+      }
+    }
+    status.innerHTML=html;
+    status.classList.toggle('visible',!!html);
+  }
+
   function makeSavingRow(item={day:'',name:'',amount:0,goalId:''}) {
     const tr=document.createElement('tr');
     tr.innerHTML=`<td>${dayCell(item.day)}</td><td><input class="entry-input entry-name" value="${escapeHtml(item.name)}"></td><td>${customGoalSelect(item.goalId||'')}</td><td><input class="entry-input money-input entry-amount" inputmode="numeric" value="${item.amount?Number(item.amount).toLocaleString('ko-KR'):''}"></td><td class="action-col"><button class="row-delete" type="button" aria-label="삭제">×</button></td>`;
-    bindRow(tr); bindGoalSelect(tr.querySelector('.goal-select'),tr,()=>{updateMonthlySummary();markUnsaved();}); return tr;
+    bindRow(tr); bindGoalSelect(tr.querySelector('.goal-select'),tr,()=>{updateMonthlySummary();markUnsaved();refreshLinkStatus(tr,false);}); setupLinkStatus(tr,false); return tr;
   }
   function bindRow(tr) {
     tr.querySelectorAll('input').forEach(el=>{
       el.addEventListener('input',()=>{
         if(el.classList.contains('money-input')) formatInputValue(el);
         if(el.classList.contains('day-input')) { el.value=String(el.value).replace(/[^0-9]/g,'').slice(0,2); }
-        updateMonthlySummary(); markUnsaved();
+        updateMonthlySummary(); markUnsaved(); refreshLinkStatus(tr,false);
       });
       el.addEventListener('blur',()=>{
         if(el.classList.contains('day-input')) el.value=validDay(el.value);
@@ -6288,6 +6353,7 @@
   }
   function collectMonthly() { return {income:collectRows(incomeRows), expenses:collectRows(expenseRows,true), savings:collectRows(savingRows)}; }
   function updateMonthlySummary() {
+    queueMicrotask(()=>document.querySelectorAll('#savingRows tr, #expenseRows tr').forEach(r=>refreshLinkStatus(r,false)));
     const d=collectMonthly();
     const income=d.income.reduce((a,b)=>a+b.amount,0), expense=d.expenses.reduce((a,b)=>a+b.amount,0), saving=d.savings.reduce((a,b)=>a+b.amount,0);
     document.getElementById('monthlyIncomeSummary').textContent=formatWon(income);
@@ -6406,10 +6472,10 @@
       categoryMap[name]=(categoryMap[name]||0)+(Number(x.amount)||0);
     });
     const sortedCategories=Object.entries(categoryMap).sort((a,b)=>b[1]-a[1]);
-    let categoryRows=sortedCategories.slice(0,upcomingDisplayCount);
+    let categoryRows=sortedCategories.slice(0,5);
     if(sortedCategories.length>5){
       const other=sortedCategories.slice(4).reduce((sum,x)=>sum+x[1],0);
-      categoryRows=[...sortedCategories.slice(0,4),['기타',other]];
+      categoryRows=[...sortedCategories.slice(0,4),['그 외',other]];
     }
     const totalExpense=categoryRows.reduce((sum,x)=>sum+x[1],0);
     const donutTotal=document.getElementById('donutTotal');
@@ -6422,7 +6488,7 @@
       }).join('') : '<div class="empty-state"></div>';
     }
     const circumference=2*Math.PI*56;
-    const donutColors=['#e63b3b','#f06b65','#f39a91','#d9a4a0','#c9c9ce'];
+    const donutColors=['#e63b3b','#ee6662','#f2958e','#dba5a0','#b96664'];
     let offset=0;
     for(let i=0;i<5;i++){
       const seg=document.getElementById(`donutSeg${i}`);
@@ -6435,9 +6501,9 @@
       seg.style.display='block';
       const [name,value]=row;
       const ratio=value/totalExpense;
-      const length=ratio*circumference;
+      const length=Math.max(0,ratio*circumference);
       seg.setAttribute('stroke',donutColors[i]);
-      seg.setAttribute('stroke-dasharray',`${length} ${circumference-length}`);
+      seg.setAttribute('stroke-dasharray',`${length} ${Math.max(0,circumference-length)}`);
       seg.setAttribute('stroke-dashoffset',`${-offset}`);
       seg.dataset.name=name;
       seg.dataset.price=formatWon(value);
@@ -6568,7 +6634,7 @@
   }
   function bindForecastRow(tr){
     tr.querySelectorAll('input').forEach(el=>{
-      el.addEventListener('input',()=>{ if(el.classList.contains('money-input')) formatInputValue(el); if(el.classList.contains('day-input')) el.value=String(el.value).replace(/[^0-9]/g,'').slice(0,2); updateForecastSummary(); markForecastUnsaved(); });
+      el.addEventListener('input',()=>{ if(el.classList.contains('money-input')) formatInputValue(el); if(el.classList.contains('day-input')) el.value=String(el.value).replace(/[^0-9]/g,'').slice(0,2); updateForecastSummary(); markForecastUnsaved(); refreshLinkStatus(tr,true); });
       el.addEventListener('blur',()=>{
         if(el.classList.contains('day-input')) el.value=validDay(el.value);
         if(el.classList.contains('entry-amount')) sortRowAfterAmountComplete(tr);
@@ -6580,16 +6646,17 @@
     const tr=document.createElement('tr'); tr.innerHTML=`<td>${dayCell(item.day)}</td><td><input class="entry-input entry-name" value="${escapeHtml(item.name)}"></td><td><input class="entry-input money-input entry-amount" inputmode="numeric" value="${item.amount?Number(item.amount).toLocaleString('ko-KR'):''}"></td><td class="action-col"><button class="row-delete" type="button" aria-label="삭제">×</button></td>`; bindForecastRow(tr); return tr;
   }
   function makeForecastExpenseRow(item={day:'',name:'',category:'기타',amount:0}){
-    const tr=document.createElement('tr'); if(item.installmentId) tr.dataset.installmentId=item.installmentId; if(item.installmentType) tr.dataset.installmentType=item.installmentType; if(item.installmentCycle) tr.dataset.installmentCycle=item.installmentCycle; if(item.isInterestCycle) tr.dataset.isInterestCycle='true'; tr.innerHTML=`<td>${dayCell(item.day)}</td><td><input class="entry-input entry-name" value="${escapeHtml(item.name)}"></td><td>${customCategory(item.category)}</td><td>${customInstallmentSelect(item.installmentId||'')}</td><td><input class="entry-input money-input entry-amount" inputmode="numeric" value="${item.amount?Number(item.amount).toLocaleString('ko-KR'):''}"></td><td class="action-col"><button class="row-delete" type="button" aria-label="삭제">×</button></td>`; bindForecastRow(tr); bindForecastCustomSelect(tr.querySelector('.entry-category')); bindInstallmentSelect(tr.querySelector('.installment-select'),tr,()=>activeForecastKey,()=>{updateForecastSummary();markForecastUnsaved();}); return tr;
+    const tr=document.createElement('tr'); if(item.installmentId) tr.dataset.installmentId=item.installmentId; if(item.installmentType) tr.dataset.installmentType=item.installmentType; if(item.installmentCycle) tr.dataset.installmentCycle=item.installmentCycle; if(item.isInterestCycle) tr.dataset.isInterestCycle='true'; tr.innerHTML=`<td>${dayCell(item.day)}</td><td><input class="entry-input entry-name" value="${escapeHtml(item.name)}"></td><td>${customCategory(item.category)}</td><td>${customInstallmentSelect(item.installmentId||'')}</td><td><input class="entry-input money-input entry-amount" inputmode="numeric" value="${item.amount?Number(item.amount).toLocaleString('ko-KR'):''}"></td><td class="action-col"><button class="row-delete" type="button" aria-label="삭제">×</button></td>`; bindForecastRow(tr); bindForecastCustomSelect(tr.querySelector('.entry-category')); bindInstallmentSelect(tr.querySelector('.installment-select'),tr,()=>activeForecastKey,()=>{updateForecastSummary();markForecastUnsaved();refreshLinkStatus(tr,true);}); setupLinkStatus(tr,true); return tr;
   }
   function makeForecastSavingRow(item={day:'',name:'',amount:0,goalId:''}){
-    const tr=document.createElement('tr'); tr.innerHTML=`<td>${dayCell(item.day)}</td><td><input class="entry-input entry-name" value="${escapeHtml(item.name)}"></td><td>${customGoalSelect(item.goalId||'')}</td><td><input class="entry-input money-input entry-amount" inputmode="numeric" value="${item.amount?Number(item.amount).toLocaleString('ko-KR'):''}"></td><td class="action-col"><button class="row-delete" type="button" aria-label="삭제">×</button></td>`; bindForecastRow(tr); bindGoalSelect(tr.querySelector('.goal-select'),tr,()=>{updateForecastSummary();markForecastUnsaved();}); return tr;
+    const tr=document.createElement('tr'); tr.innerHTML=`<td>${dayCell(item.day)}</td><td><input class="entry-input entry-name" value="${escapeHtml(item.name)}"></td><td>${customGoalSelect(item.goalId||'')}</td><td><input class="entry-input money-input entry-amount" inputmode="numeric" value="${item.amount?Number(item.amount).toLocaleString('ko-KR'):''}"></td><td class="action-col"><button class="row-delete" type="button" aria-label="삭제">×</button></td>`; bindForecastRow(tr); bindGoalSelect(tr.querySelector('.goal-select'),tr,()=>{updateForecastSummary();markForecastUnsaved();refreshLinkStatus(tr,true);}); setupLinkStatus(tr,true); return tr;
   }
   function collectForecast(){ return {income:collectRows(forecastIncomeRows),expenses:collectRows(forecastExpenseRows,true),savings:collectRows(forecastSavingRows)}; }
   function updateForecastCardStates(){
     [[forecastIncomeRows,'forecastIncomeCard'],[forecastExpenseRows,'forecastExpenseCard'],[forecastSavingRows,'forecastSavingCard']].forEach(([rows,id])=>document.getElementById(id)?.classList.toggle('is-empty',!rows.children.length));
   }
   function updateForecastSummary(){
+    queueMicrotask(()=>document.querySelectorAll('#forecastSavingRows tr, #forecastExpenseRows tr').forEach(r=>refreshLinkStatus(r,true)));
     const t=forecastTotals(collectForecast());
     document.getElementById('forecastIncomeSummary').textContent=formatWon(t.income);
     document.getElementById('forecastExpenseSummary').textContent=formatWon(t.expense);
