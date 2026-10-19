@@ -6294,8 +6294,8 @@
         // 저장된 회차가 없더라도 첫 청구 월과 조회 월을 기준으로 회차를 계산한다.
         const entry=installmentEntryForKey(installmentId,key);
         let cycle=Number(entry?.installmentCycle)||0;
-        if(!cycle && /^\d{4}-\d{2}$/.test(plan.startMonth||'') && /^\d{4}-\d{2}$/.test(key||'')){
-          const [sy,sm]=plan.startMonth.split('-').map(Number),[ky,km]=key.split('-').map(Number);
+        if(!cycle && /^\d{4}-\d{2}(?:-\d{2})?$/.test((plan.startMonth||'').trim()) && /^\d{4}-\d{2}$/.test(key||'')){
+          const [sy,sm]=plan.startMonth.trim().split('-').map(Number),[ky,km]=key.split('-').map(Number);
           cycle=(ky-sy)*12+(km-sm)+1;
         }
         if(cycle>=1 && cycle<=months){
@@ -6864,7 +6864,7 @@
   function moneyInput(value,field,placeholder){return `<input class="plan-money" data-field="${field}" inputmode="numeric" value="${value?Number(value).toLocaleString('ko-KR'):''}" placeholder="${placeholder}">`;}
   function installmentStatus(x={}){
     const months=Math.max(0,Number(x.months)||0);
-    const start=/^(\d{4})-(\d{2})$/.exec(x.startMonth||'');
+    const start=/^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec((x.startMonth||'').trim());
     if(!months||!start) return {paidCount:0,endLabel:'기간을 입력하면 진행 회차가 표시됩니다.'};
     const sy=Number(start[1]), sm=Number(start[2]);
     const endIndex=sy*12+(sm-1)+months-1;
@@ -6886,7 +6886,7 @@
     const baseAmount=months&&total?Math.round(total/months):0;
     const amountText=interestType==='interest'?'이자 할부 · 회차별 실제 청구액 입력':interestType==='partial'?(interestMonths?`부분 무이자 · 1~${interestMonths}회 이자 부담 · 이후 무이자`:'부분 무이자 · 이자 부담 회차 입력'):(months&&total?`무이자 · 월 평균 ${formatWon(baseAmount)}`:'무이자');
     const installmentId=x.id||`installment-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-    return `<div class="plan-manage-row installment-row" data-installment-id="${escapeHtml(installmentId)}" data-interest-type="${interestType}"><div class="installment-type"><button type="button" data-type="interestFree" class="${interestType==='interestFree'?'active':''}">무이자</button><button type="button" data-type="partial" class="${interestType==='partial'?'active':''}">부분 무이자</button><button type="button" data-type="interest" class="${interestType==='interest'?'active':''}">이자</button><input class="partial-interest-input" data-field="interestMonths" inputmode="numeric" value="${interestMonths||''}" placeholder="이자 부담 회차 예: 3"></div><input data-field="name" value="${escapeHtml(x.name||'')}" placeholder="항목명">${moneyInput(total,'total','전체 금액')}<input data-field="purchaseDate" value="${escapeHtml(purchaseDate)}" inputmode="numeric" placeholder="구매일 2026-10-06"><input data-field="startMonth" class="plan-start-month" value="${escapeHtml(startMonth)}" inputmode="numeric" placeholder="첫 청구 월 2026-11"><input data-field="paymentDay" value="${paymentDay||''}" inputmode="numeric" placeholder="결제일 21"><input data-field="months" class="plan-months" value="${months||''}" inputmode="numeric" placeholder="할부 개월"><button class="plan-delete" type="button" aria-label="삭제">×</button><div class="installment-meta"><span class="installment-status">${status.endLabel}${paymentDay?` · 매월 ${paymentDay}일 결제`:''}</span><span>${amountText}</span></div><div class="installment-help">첫 청구 월은 카드사 이용기간·매입 시점에 따라 달라질 수 있어 직접 입력합니다.</div></div>`;
+    return `<div class="plan-manage-row installment-row" data-installment-id="${escapeHtml(installmentId)}" data-interest-type="${interestType}"><div class="installment-type"><button type="button" data-type="interestFree" class="${interestType==='interestFree'?'active':''}">무이자</button><button type="button" data-type="partial" class="${interestType==='partial'?'active':''}">부분 무이자</button><button type="button" data-type="interest" class="${interestType==='interest'?'active':''}">이자</button><input class="partial-interest-input" data-field="interestMonths" inputmode="numeric" value="${interestMonths||''}" placeholder="이자 부담 회차 예: 3"></div><input data-field="name" value="${escapeHtml(x.name||'')}" placeholder="항목명">${moneyInput(total,'total','전체 금액')}<input data-field="purchaseDate" value="${escapeHtml(purchaseDate)}" inputmode="numeric" placeholder="구매일 2026-10-06"><input data-field="startMonth" class="plan-start-month" value="${escapeHtml(startMonth)}" inputmode="numeric" placeholder="첫 청구일 2026-11-26"><input data-field="paymentDay" value="${paymentDay||''}" inputmode="numeric" placeholder="결제일 21"><input data-field="months" class="plan-months" value="${months||''}" inputmode="numeric" placeholder="할부 개월"><button class="plan-delete" type="button" aria-label="삭제">×</button><div class="installment-meta"><span class="installment-status">${status.endLabel}${paymentDay?` · 매월 ${paymentDay}일 결제`:''}</span><span>${amountText}</span></div><div class="installment-help">첫 청구일은 YYYY-MM-DD 또는 YYYY-MM 형식으로 입력할 수 있습니다.</div></div>`;
   }
   function goalActualContribution(goalId){
     if(!goalId) return 0;
@@ -6983,7 +6983,7 @@
   function installmentEntriesForPlans(plans){
     const byKey={};
     (plans.installments||[]).forEach(x=>{
-      const start=/^(\d{4})-(\d{2})$/.exec(x.startMonth||'');
+      const start=/^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec((x.startMonth||'').trim());
       const months=Math.max(0,Number(x.months)||0), paymentDay=Math.min(31,Math.max(1,Number(x.paymentDay)||0));
       if(!x.id||!x.name||!start||!months||!paymentDay) return;
       const sy=Number(start[1]), sm=Number(start[2]), total=Number(x.total)||0;
