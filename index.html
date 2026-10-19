@@ -2174,7 +2174,7 @@
 
 
 
-    */ 도넛 툴팁 */
+    /* 도넛 툴팁 */
 
 
 
@@ -3007,7 +3007,7 @@
 
 
     /* 연결된 목표·할부의 입력 중 실시간 현황 */
-    .entry-link-status { display:none; margin:5px 0 2px; padding:9px 10px; border-radius:9px; background:#fff7f6; border:1px solid #f5e1df; font-size:11px; line-height:1.65; color:#69636a; text-align:left; white-space:normal; }
+    .entry-link-status { display:none; margin:8px 0 4px; padding:12px 13px; border-radius:9px; background:#fff7f6; border:1px solid #f5e1df; font-size:12px; line-height:1.7; color:#69636a; text-align:left; white-space:normal; min-width:220px; }
     .entry-link-status.visible { display:block; }
     .entry-link-status strong { color:#c83e3c; font-weight:800; }
     .entry-link-status .link-progress { height:4px; background:#eadfdf; border-radius:5px; overflow:hidden; margin-top:6px; }
@@ -4148,7 +4148,7 @@
             <div class="donut-figure">
               <div class="donut-wrap">
                 <svg class="donut-svg" id="donutSvg" viewBox="0 0 160 160" aria-label="지출 구성 그래프">
-                  <circle cx="80" cy="80" r="56" fill="none" stroke="#f0f0f2" stroke-width="30"></circle>
+                  <circle cx="80" cy="80" r="56" fill="none" stroke="#f7e6e5" stroke-width="30"></circle>
                   <circle class="donut-segment" id="donutSeg0" cx="80" cy="80" r="56"></circle>
                   <circle class="donut-segment" id="donutSeg1" cx="80" cy="80" r="56"></circle>
                   <circle class="donut-segment" id="donutSeg2" cx="80" cy="80" r="56"></circle>
@@ -6501,7 +6501,7 @@
       seg.style.display='block';
       const [name,value]=row;
       const ratio=value/totalExpense;
-      const length=Math.max(0,ratio*circumference);
+      const length=i===categoryRows.length-1 ? Math.max(0,circumference-offset) : Math.max(0,ratio*circumference);
       seg.setAttribute('stroke',donutColors[i]);
       seg.setAttribute('stroke-dasharray',`${length} ${Math.max(0,circumference-length)}`);
       seg.setAttribute('stroke-dashoffset',`${-offset}`);
