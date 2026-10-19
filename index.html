@@ -6689,7 +6689,7 @@
   }
   function renderForecastOverview(){
     const box=document.getElementById('forecastOverview'); if(!box) return;
-    box.innerHTML=forecastMonths().map(x=>{ const t=forecastTotals(getForecastData(x.key)); return `<button type="button" class="forecast-month-card${x.key===activeForecastKey?' active':''}" data-key="${x.key}"><div class="fm-date">${x.y}년 ${x.m}월</div><div class="fm-balance${t.balance<0?' negative':''}">${t.balance>0?'+':''}${t.balance.toLocaleString('ko-KR')}원</div><div class="fm-meta"><span>수입 ${t.income.toLocaleString('ko-KR')}원</span><span>지출 ${t.expense.toLocaleString('ko-KR')}원</span></div></button>`; }).join('');
+    box.innerHTML=forecastMonths().map(x=>{ const t=forecastTotals(getForecastData(x.key)); return `<button type="button" class="forecast-month-card${x.key===activeForecastKey?' active':''}" data-key="${x.key}"><div class="fm-date">${x.y}년 ${x.m}월</div><div class="fm-balance${t.balance<0?' negative':''}">${t.balance>0?'+':''}${t.balance.toLocaleString('ko-KR')}원</div><div class="fm-meta"><span>수입 ${t.income.toLocaleString('ko-KR')}원</span><span>지출 ${t.expense.toLocaleString('ko-KR')}원</span><span>저축 ${t.saving.toLocaleString('ko-KR')}원</span></div></button>`; }).join('');
     box.querySelectorAll('.forecast-month-card').forEach(btn=>btn.addEventListener('click',()=>{ saveForecastEditor(false); activeForecastKey=btn.dataset.key; renderForecastOverview(); loadForecastEditor(activeForecastKey); }));
   }
   function loadForecastEditor(key){
