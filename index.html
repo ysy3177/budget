@@ -6058,17 +6058,46 @@
 
   function monthKey(year = selectedYear, month = selectedMonth) { return `${year}-${String(month).padStart(2,'0')}`; }
   function storageKey(key = monthKey()) { return `budget-month-${key}`; }
+  // 월별 관리에 별도 입력이 없으면 해당 월의 6개월 예상 데이터를 표시한다.
+  // 예상 원본은 그대로 보존하고, 월별 관리에서 저장할 때만 실제 월별 데이터로 확정한다.
   function getMonthlyData(key = monthKey()) {
-    const saved = localStorage.getItem(storageKey(key));
-    if (saved) {
-      try {
-        const d = JSON.parse(saved);
-        // 이전 버전의 단일 저축 금액도 자동 변환
-        if (!Array.isArray(d.savings)) d.savings = d.saving ? [{day:'',name:'',amount:Number(d.saving)||0}] : [];
-        return {income:Array.isArray(d.income)?d.income:[], expenses:Array.isArray(d.expenses)?d.expenses:[], savings:d.savings};
-      } catch(e) {}
+    const saved=localStorage.getItem(storageKey(key));
+    let monthly=null;
+    if(saved){
+      try{
+        const d=JSON.parse(saved);
+        if(!Array.isArray(d.savings)) d.savings=d.saving?[{day:'',name:'',amount:Number(d.saving)||0}]:[];
+        monthly={income:Array.isArray(d.income)?d.income:[],expenses:Array.isArray(d.expenses)?d.expenses:[],savings:d.savings};
+      }catch(e){}
     }
-    return {income:[], expenses:[], savings:[]};
+    const forecastRaw=localStorage.getItem('budget-forecast-'+key);
+    if(forecastRaw){
+      try{
+        const d=JSON.parse(forecastRaw);
+        const forecast={
+          income:Array.isArray(d.income)?d.income:(Number(d.income)?[{day:'',name:'',amount:Number(d.income)}]:[]),
+          expenses:Array.isArray(d.expenses)?d.expenses:(Number(d.expense)?[{day:'',name:'',category:'기타',amount:Number(d.expense)}]:[]),
+          savings:Array.isArray(d.savings)?d.savings:(Number(d.saving)?[{day:'',name:'',amount:Number(d.saving)}]:[])
+        };
+        if(!monthly) return forecast;
+        // 기존 월별 입력이 있으면 보호한다. 자동 생성된 할부만 있는 달은
+        // 예상의 수입·저축·일반 지출을 채워 넣되, 같은 할부는 중복하지 않는다.
+        const hasManual=monthly.income.length || monthly.savings.length ||
+          monthly.expenses.some(x=>!x.installmentId);
+        if(!hasManual){
+          return {
+            income:forecast.income,
+            savings:forecast.savings,
+            expenses:[
+              ...monthly.expenses,
+              ...forecast.expenses.filter(x=>!x.installmentId &&
+                !monthly.expenses.some(m=>m.day===x.day && m.name===x.name && Number(m.amount)===Number(x.amount)))
+            ]
+          };
+        }
+      }catch(e){console.warn('예상 데이터 불러오기 실패',e);}
+    }
+    return monthly||{income:[],expenses:[],savings:[]};
   }
   function formatWon(value) { return `${Math.max(0, Number(value)||0).toLocaleString('ko-KR')}원`; }
   function digits(value) { return Number(String(value).replace(/[^0-9]/g,'')) || 0; }
