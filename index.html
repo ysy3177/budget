@@ -4810,10 +4810,10 @@
 
 
 
-  let selectedYear = 2026;
-
-  let selectedMonth = 10;
-
+  // 앱 실행 시 기기의 현재 연도·월을 기본 선택한다.
+  const initialBudgetDate = new Date();
+  let selectedYear = initialBudgetDate.getFullYear();
+  let selectedMonth = initialBudgetDate.getMonth() + 1;
   let viewingYear = selectedYear;
 
 
