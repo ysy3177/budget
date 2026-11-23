@@ -3824,7 +3824,7 @@
 
             >
 
-              2026년 10월
+              현재 월
 
             </span>
 
@@ -4815,6 +4815,8 @@
   let selectedYear = initialBudgetDate.getFullYear();
   let selectedMonth = initialBudgetDate.getMonth() + 1;
   let viewingYear = selectedYear;
+  // 초기 헤더를 실제 선택 월과 동기화한다.
+  selectedMonthText.textContent = `${selectedYear}년 ${selectedMonth}월`;
 
 
 
