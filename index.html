@@ -6890,7 +6890,12 @@
       target:digits(r.querySelector('[data-field="target"]')?.value||0),
       current:digits(r.querySelector('[data-field="current"]')?.value||0)
     })).filter(x=>x.name||x.target||x.current);
-    return {installments,goals};
+    // 완료 항목은 화면에서만 자동 정리하고 과거 연결 및 청구 기록을 보존한다.
+    const previous=getPlanData();
+    return {
+      installments:[...previous.installments.filter(x=>isFinishedInstallment(x)&&!installments.some(y=>y.id===x.id)),...installments],
+      goals:[...previous.goals.filter(x=>isFinishedGoal(x)&&!goals.some(y=>y.id===x.id)),...goals]
+    };
   }
   function moneyInput(value,field,placeholder){return `<input class="plan-money" data-field="${field}" inputmode="numeric" value="${value?Number(value).toLocaleString('ko-KR'):''}" placeholder="${placeholder}">`;}
   function installmentStatus(x={}){
@@ -6999,10 +7004,24 @@
       if(!hasRows) box.insertAdjacentHTML('beforeend',`<div class="plan-manage-empty">${msg}</div>`);
     });
   }
+  function isFinishedInstallment(x,now=new Date()){
+    const start=/^(\d{4})-(\d{2})(?:-\d{2})?$/.exec(String(x.startMonth||'').trim());
+    const months=Number(x.months), day=Number(x.paymentDay);
+    if(!start||!Number.isInteger(months)||months<1||!Number.isInteger(day)||day<1||day>31||Number(start[2])<1||Number(start[2])>12)return false;
+    const endMonth=new Date(Number(start[1]),Number(start[2])-1+months-1,1);
+    const lastDay=new Date(endMonth.getFullYear(),endMonth.getMonth()+1,0).getDate();
+    const end=new Date(endMonth.getFullYear(),endMonth.getMonth(),Math.min(day,lastDay));
+    const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+    return today>end;
+  }
+  function isFinishedGoal(x){
+    const target=Number(x.target)||0;
+    return target>0 && (Number(x.current)||0)+goalActualContribution(x.id)>=target;
+  }
   function renderPlanManagement(){
     const d=getPlanData(), il=document.getElementById('installmentManageList'), gl=document.getElementById('goalManageList');
     if(!il||!gl)return;
-    il.innerHTML=d.installments.map(installmentRow).join(''); gl.innerHTML=d.goals.map(goalRow).join('');
+    il.innerHTML=d.installments.filter(x=>!isFinishedInstallment(x)).map(installmentRow).join(''); gl.innerHTML=d.goals.filter(x=>!isFinishedGoal(x)).map(goalRow).join('');
     refreshPlanEmpty(); bindPlanRows();
   }
   document.getElementById('addInstallmentBtn')?.addEventListener('click',()=>{const b=document.getElementById('installmentManageList');b.querySelector('.plan-manage-empty')?.remove();b.insertAdjacentHTML('beforeend',installmentRow());bindPlanRows();b.querySelector('.plan-manage-row:last-of-type [data-field="name"]')?.focus();});
